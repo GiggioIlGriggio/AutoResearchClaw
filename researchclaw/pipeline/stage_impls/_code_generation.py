@@ -389,6 +389,13 @@ def _execute_code_generation(
         except Exception as _bp_exc:
             logger.debug("BA: Failed to load benchmark plan: %s", _bp_exc)
 
+    # --- Experiment scaffold: tell the LLM about provided base code + dataset ---
+    try:
+        from researchclaw.experiment.scaffold import build_scaffold_guidance
+        extra_guidance += build_scaffold_guidance(config.experiment)
+    except Exception:  # noqa: BLE001
+        logger.debug("Scaffold guidance unavailable", exc_info=True)
+
     # --- P2.2+P2.3: LLM training topic detection and guidance ---
     _llm_keywords = (
         "language model", "llm", "fine-tun", "lora", "qlora", "peft",
@@ -911,6 +918,7 @@ def _execute_code_generation(
         "sklearn", "scipy", "pandas", "matplotlib", "PIL", "tqdm",
         "einops", "timm", "transformers", "datasets", "peft",
         "stable_baselines3",
+        "scaffold",  # provided experiment-scaffold package (materialized at write time)
     }
     for fname, code in list(files.items()):
         if not fname.endswith(".py"):
@@ -933,6 +941,13 @@ def _execute_code_generation(
     exp_dir.mkdir(parents=True, exist_ok=True)
     for fname, code in files.items():
         (exp_dir / fname).write_text(code, encoding="utf-8")
+
+    # --- Experiment scaffold: copy the fixed base code into scaffold/ ---
+    try:
+        from researchclaw.experiment.scaffold import materialize_scaffold
+        materialize_scaffold(config.experiment, exp_dir)
+    except Exception:  # noqa: BLE001
+        logger.warning("Scaffold materialization failed", exc_info=True)
 
     # --- Write validation report ---
     if validation_log or not all_valid:

@@ -133,3 +133,11 @@ def test_enforce_warns_when_not_require(tmp_path, caplog):
 
 def test_enforce_noop_when_disabled(tmp_path):
     sc.enforce_scaffold(_cfg(scaffold_dir=tmp_path / "nope", enabled=False))  # no raise
+
+
+def test_scaffold_import_is_not_an_error():
+    # Underpins the design: the repair loop only acts on error-severity issues,
+    # so a scaffold import is never stripped or blocked.
+    from researchclaw.experiment.validator import validate_code
+    v = validate_code("from scaffold.models import BaseGNN\nx = 1\n")
+    assert all(i.severity != "error" for i in v.issues)

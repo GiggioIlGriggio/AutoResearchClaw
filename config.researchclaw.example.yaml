@@ -117,6 +117,13 @@ experiment:
     timeout_sec: 600             # Max seconds for OpenCode generation
     max_retries: 1               # Retry count on failure
     workspace_cleanup: true      # Remove temp workspace after collection
+  # Experiment scaffold: fixed base code + dataset pointer (disabled by default).
+  scaffold:
+    enabled: false
+    dir: ""              # host dir with your *.py modules + SCAFFOLD.md -> becomes scaffold/
+    manifest: "SCAFFOLD.md"   # injected verbatim into the code-gen prompt
+    dataset_dir: ""      # host dataset dir -> exposed as RC_DATASET_DIR
+    require: true        # enabled + dir/dataset missing -> fail fast (else warn + disable)
 
 # ============================================================================
 # SSH Remote Examples

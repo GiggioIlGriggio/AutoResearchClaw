@@ -542,6 +542,23 @@ class CliAgentConfig:
 
 
 @dataclass(frozen=True)
+class ScaffoldConfig:
+    """Experiment scaffold — fixed, portable base code + dataset pointer.
+
+    When ``enabled``, the pipeline copies ``dir`` into every experiment as an
+    importable ``scaffold/`` package, injects ``manifest`` verbatim into the
+    code-generation prompt, and exposes ``dataset_dir`` at ``RC_DATASET_DIR``.
+    See docs/specs/2026-06-10-experiment-scaffold-design.md.
+    """
+
+    enabled: bool = False
+    dir: str = ""
+    manifest: str = "SCAFFOLD.md"
+    dataset_dir: str = ""
+    require: bool = True
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
     mode: str = "simulated"
     time_budget_sec: int = 300
@@ -564,6 +581,7 @@ class ExperimentConfig:
     figure_agent: FigureAgentConfig = field(default_factory=FigureAgentConfig)
     repair: ExperimentRepairConfig = field(default_factory=ExperimentRepairConfig)
     cli_agent: CliAgentConfig = field(default_factory=CliAgentConfig)
+    scaffold: ScaffoldConfig = field(default_factory=ScaffoldConfig)
 
 
 @dataclass(frozen=True)
@@ -1310,6 +1328,19 @@ def _parse_experiment_config(data: dict[str, Any]) -> ExperimentConfig:
         figure_agent=_parse_figure_agent_config(data.get("figure_agent") or {}),
         repair=_parse_experiment_repair_config(data.get("repair") or {}),
         cli_agent=_parse_cli_agent_config(data.get("cli_agent") or {}),
+        scaffold=_parse_scaffold_config(data.get("scaffold") or {}),
+    )
+
+
+def _parse_scaffold_config(data: dict[str, Any]) -> ScaffoldConfig:
+    if not data:
+        return ScaffoldConfig()
+    return ScaffoldConfig(
+        enabled=bool(data.get("enabled", False)),
+        dir=str(data.get("dir", "")),
+        manifest=str(data.get("manifest", "SCAFFOLD.md")),
+        dataset_dir=str(data.get("dataset_dir", "")),
+        require=bool(data.get("require", True)),
     )
 
 

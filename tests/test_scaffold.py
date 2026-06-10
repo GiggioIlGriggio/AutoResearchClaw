@@ -141,3 +141,48 @@ def test_scaffold_import_is_not_an_error():
     from researchclaw.experiment.validator import validate_code
     v = validate_code("from scaffold.models import BaseGNN\nx = 1\n")
     assert all(i.severity != "error" for i in v.issues)
+
+
+def _minimal_rc_config(tmp_path, mode="sandbox"):
+    # Mirrors tests/test_hep_incremental.py::_make_rc_config
+    from researchclaw.config import RCConfig
+    data = {
+        "project": {"name": "rc-test", "mode": "docs-first", "profile": ""},
+        "research": {"topic": "test", "domains": ["ml"]},
+        "runtime": {"timezone": "UTC"},
+        "notifications": {"channel": "local"},
+        "knowledge_base": {"backend": "markdown", "root": str(tmp_path / "kb")},
+        "openclaw_bridge": {"use_memory": False, "use_message": False},
+        "llm": {
+            "provider": "openai-compatible",
+            "base_url": "http://localhost:1234/v1",
+            "api_key_env": "RC_TEST_KEY", "api_key": "inline-test-key",
+            "primary_model": "fake-model", "fallback_models": [],
+        },
+        "security": {"hitl_required_stages": []},
+        "experiment": {"mode": mode},
+    }
+    return RCConfig.from_dict(data, project_root=tmp_path, check_paths=False)
+
+
+def test_runner_calls_enforce_scaffold(monkeypatch, tmp_path):
+    # execute_pipeline must fail fast (before any stage) by calling
+    # enforce_scaffold. Monkeypatch it to raise and assert it propagates.
+    from researchclaw.pipeline import runner
+
+    called = {}
+
+    def fake_enforce(exp_config):
+        called["mode"] = exp_config.mode
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "researchclaw.experiment.scaffold.enforce_scaffold", fake_enforce
+    )
+    cfg = _minimal_rc_config(tmp_path)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        runner.execute_pipeline(
+            run_dir=tmp_path, run_id="t", config=cfg, adapters=None,
+        )
+    assert called.get("mode") == "sandbox"

@@ -457,6 +457,10 @@ def execute_pipeline(
     except Exception:  # noqa: BLE001
         pass
 
+    # ── Experiment scaffold: fail fast (or warn) on bad scaffold config ──
+    from researchclaw.experiment.scaffold import enforce_scaffold
+    enforce_scaffold(config.experiment)
+
     # ── Integration hooks: EventLog, ExperimentMemory, CostTracker ──
     event_log = None
     try:

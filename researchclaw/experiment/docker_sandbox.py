@@ -108,11 +108,14 @@ class DockerSandbox:
       - ``"full"``:       Network available throughout all phases
     """
 
-    def __init__(self, config: DockerSandboxConfig, workdir: Path) -> None:
+    def __init__(
+        self, config: DockerSandboxConfig, workdir: Path, *, dataset_dir: str = ""
+    ) -> None:
         self.config = config
         self.workdir = workdir.resolve()
         self.workdir.mkdir(parents=True, exist_ok=True)
         self._run_counter = 0
+        self.dataset_dir = dataset_dir
 
     # ------------------------------------------------------------------
     # Public API
@@ -417,11 +420,14 @@ class DockerSandbox:
             # Full network throughout — for development/debugging
             cmd.extend(_user_flag())
 
-        # Mount pre-cached datasets
-        # Priority: /opt/datasets (system) > ~/.cache/datasets (user)
+        # Mount the experiment-scaffold dataset (if configured) at a stable path.
+        # Priority: scaffold.dataset_dir > /opt/datasets (system) > ~/.cache/datasets (user)
         datasets_host = Path("/opt/datasets")
         user_datasets = Path.home() / ".cache" / "datasets"
-        if datasets_host.is_dir():
+        if self.dataset_dir:
+            cmd.extend(["-v", f"{self.dataset_dir}:/workspace/data:ro"])
+            cmd.extend(["-e", "RC_DATASET_DIR=/workspace/data"])
+        elif datasets_host.is_dir():
             cmd.extend(["-v", f"{datasets_host}:/workspace/data:ro"])
         elif user_datasets.is_dir():
             cmd.extend(["-v", f"{user_datasets}:/workspace/data:rw"])

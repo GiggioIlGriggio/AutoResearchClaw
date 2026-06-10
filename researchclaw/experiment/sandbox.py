@@ -305,11 +305,14 @@ class SandboxProtocol(Protocol):
 
 
 class ExperimentSandbox:
-    def __init__(self, config: SandboxConfig, workdir: Path) -> None:
+    def __init__(
+        self, config: SandboxConfig, workdir: Path, *, dataset_dir: str = ""
+    ) -> None:
         self.config: SandboxConfig = config
         self.workdir: Path = workdir.resolve()
         self.workdir.mkdir(parents=True, exist_ok=True)
         self._run_counter: int = 0
+        self.dataset_dir: str = dataset_dir
 
     def run(self, code: str, *, timeout_sec: int = 300) -> SandboxResult:
         script_path = self._next_script_path()
@@ -322,6 +325,8 @@ class ExperimentSandbox:
         result: SandboxResult
         try:
             env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+            if self.dataset_dir:
+                env["RC_DATASET_DIR"] = self.dataset_dir
             completed = subprocess.run(
                 command,
                 capture_output=True,
@@ -423,6 +428,8 @@ class ExperimentSandbox:
         result: SandboxResult
         try:
             env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+            if self.dataset_dir:
+                env["RC_DATASET_DIR"] = self.dataset_dir
             if env_overrides:
                 env.update(env_overrides)
             completed = subprocess.run(

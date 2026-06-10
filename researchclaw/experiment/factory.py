@@ -21,6 +21,10 @@ def create_sandbox(config: ExperimentConfig, workdir: Path) -> SandboxProtocol:
     - ``"sandbox"`` → :class:`ExperimentSandbox` (subprocess)
     - ``"docker"``  → :class:`DockerSandbox`  (Docker container)
     """
+    from researchclaw.experiment.scaffold import resolve_dataset_dir
+
+    dataset_dir = resolve_dataset_dir(config)
+
     if config.mode == "docker":
         from researchclaw.experiment.docker_sandbox import DockerSandbox
 
@@ -31,7 +35,9 @@ def create_sandbox(config: ExperimentConfig, workdir: Path) -> SandboxProtocol:
                 "Docker daemon is not reachable — "
                 "falling back to subprocess sandbox."
             )
-            return ExperimentSandbox(config.sandbox, workdir)
+            return ExperimentSandbox(
+                config.sandbox, workdir, dataset_dir=dataset_dir
+            )
 
         if not DockerSandbox.ensure_image(docker_cfg.image):
             raise RuntimeError(
@@ -42,7 +48,7 @@ def create_sandbox(config: ExperimentConfig, workdir: Path) -> SandboxProtocol:
         if docker_cfg.gpu_enabled:
             logger.info("Docker sandbox: GPU passthrough enabled")
 
-        return DockerSandbox(docker_cfg, workdir)
+        return DockerSandbox(docker_cfg, workdir, dataset_dir=dataset_dir)
 
     if config.mode == "ssh_remote":
         from researchclaw.experiment.ssh_sandbox import SshRemoteSandbox
@@ -105,7 +111,7 @@ def create_sandbox(config: ExperimentConfig, workdir: Path) -> SandboxProtocol:
             f"Unsupported experiment mode for create_sandbox(): {config.mode}"
         )
 
-    return ExperimentSandbox(config.sandbox, workdir)
+    return ExperimentSandbox(config.sandbox, workdir, dataset_dir=dataset_dir)
 
 
 def create_agentic_sandbox(

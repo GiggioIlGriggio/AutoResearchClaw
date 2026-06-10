@@ -30,6 +30,10 @@ from researchclaw.experiment.sandbox import (
     validate_entry_point,
     validate_entry_point_resolved,
 )
+from researchclaw.experiment.scaffold import (
+    DATASET_CONTAINER_PATH,
+    DATASET_ENV_VAR,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -425,8 +429,8 @@ class DockerSandbox:
         datasets_host = Path("/opt/datasets")
         user_datasets = Path.home() / ".cache" / "datasets"
         if self.dataset_dir:
-            cmd.extend(["-v", f"{self.dataset_dir}:/workspace/data:ro"])
-            cmd.extend(["-e", "RC_DATASET_DIR=/workspace/data"])
+            cmd.extend(["-v", f"{self.dataset_dir}:{DATASET_CONTAINER_PATH}:ro"])
+            cmd.extend(["-e", f"{DATASET_ENV_VAR}={DATASET_CONTAINER_PATH}"])
         elif datasets_host.is_dir():
             cmd.extend(["-v", f"{datasets_host}:/workspace/data:ro"])
         elif user_datasets.is_dir():

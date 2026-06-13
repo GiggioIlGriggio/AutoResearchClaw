@@ -29,6 +29,16 @@ strict=True)`.
 
 ## Wiring recipe (identical to the full matrix; import from `scaffold/`)
 
+> **EXACT API — `load_fc_graphs` has NO `carrier=`/`mode=` argument.** Select the carrier
+> only via `node_features=` (identity) or `node_feature_key=`+`glm_diagonal=` (glm_diagonal),
+> exactly as shown below. A made-up kwarg like `carrier="identity"` raises
+> `TypeError: load_fc_graphs() got an unexpected keyword argument 'carrier'` and the run
+> fails. If you write a `_load(cell, carrier=...)` helper, translate `carrier` to the real
+> kwargs INSIDE it; never forward a `carrier` string to `load_fc_graphs`. Other signatures:
+> `build_gcn(in_channels=400, hidden_channels, out_channels, num_layers=2, norm="batch_norm")`;
+> `GraphRegressor(backbone, pooled_dim=P, global_dim=0|1)`, `forward(x, edge_index, edge_weight, batch, u=None)`;
+> `transfer.save_backbone(backbone, path)` / `load_backbone(backbone, path, strict=True)`.
+
 - identity carrier: `load_fc_graphs(name, matrix_key="sc",
   edge_weight_norm="abs_max", node_features="identity")`.
 - glm_diagonal carrier: `load_fc_graphs(name, matrix_key="sc",

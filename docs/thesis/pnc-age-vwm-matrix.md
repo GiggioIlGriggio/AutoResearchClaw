@@ -49,6 +49,26 @@ save their backbones; **A1 → {B1, B2, C2}**, **A4 → {B3, B4}** load them.
 
 ## Per-cell scaffold wiring recipe (import from `scaffold/`; do not re-implement)
 
+> **EXACT scaffold API — call these verbatim; do NOT invent parameters.** The loader
+> has **no `carrier=` or `mode=` argument**; the carrier is selected by `node_features=`
+> (identity) or `node_feature_key=`+`glm_diagonal=` (glm_diagonal), as shown below.
+> Passing a made-up kwarg such as `carrier="identity"` raises
+> `TypeError: load_fc_graphs() got an unexpected keyword argument 'carrier'`. Real
+> signatures (these symbols accept NO other kwargs):
+> - `load_fc_graphs(name, *, matrix_key="sc", edge_weight_norm="abs_max", node_features="identity", node_feature_key=None, glm_diagonal=False, glm_normalize=True, graph_feature_key=None, task=None, limit=None, indices=None)` → `list[Data]`
+> - `load_fc_bundle(name, matrix_key="sc")` → `(matrix, y, meta)` (e.g. `meta["age"]`, `meta["glm_2back_vs_0back"]`)
+> - `build_gcn(in_channels=400, hidden_channels=H, out_channels=P, num_layers=L, norm="batch_norm")`; call as `backbone(x, edge_index, edge_weight=ew)`
+> - `GraphRegressor(backbone, pooled_dim=P, global_dim=0|1|400, global_hidden=32, head_hidden=64)`; `forward(x, edge_index, edge_weight, batch, u=None)`
+> - `transfer.save_backbone(backbone, path)` · `transfer.load_backbone(backbone, path, strict=True)` · `transfer.freeze(module)` · `transfer.set_trainable(module, flag)`
+> - `age_vwm_baseline(age, vwm, cv=5)` → `((slope, intercept), mean_cv_r2)`
+>
+> If you write a per-cell helper that takes a `carrier` argument, **translate it INSIDE
+> the helper** to the real loader kwargs — never forward a `carrier` string to
+> `load_fc_graphs`:
+> - identity → `load_fc_graphs(name, matrix_key="sc", edge_weight_norm="abs_max", node_features="identity")`
+> - glm_diagonal → `load_fc_graphs(name, matrix_key="sc", edge_weight_norm="abs_max", node_feature_key="glm_2back_vs_0back", glm_diagonal=True, glm_normalize=True)`
+> - age @head → add `graph_feature_key="age"` to the call above (U=1).
+
 Common backbone (same hyperparameters across cells; HPO-swept in the full run):
 `backbone = scaffold.models.build_gcn(in_channels=400, hidden_channels=H,
 out_channels=P, num_layers=L, norm="batch_norm")`.

@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from researchclaw.config import load_config
+from researchclaw.prompts import PromptManager
 
 REPO = Path(__file__).resolve().parents[1]
 MATRIX = REPO / "docs" / "thesis" / "pnc-age-vwm-matrix.md"
@@ -121,3 +122,53 @@ def test_smoke_config_runs_locally_and_pins_smoke_matrix():
     # the smoke must EXECUTE locally: execution stage is NOT HITL-gated
     assert not any(int(s) >= 11 for s in cfg.security.hitl_required_stages), \
         "smoke must run end-to-end locally (do not gate execution)"
+
+
+# ---------------------------------------------------------------------------
+# Task 5: prove the matrix pin reaches BOTH ARC stages
+# ---------------------------------------------------------------------------
+
+
+def _pm_from_config(cfg):
+    """Mirror executor.py: build a PromptManager from config.prompts.extra_prompts.
+
+    domain is fixed to "ml" — correct for the thesis configs (no HEP profile).
+    """
+    return PromptManager(
+        cfg.prompts.custom_file or None,
+        domain="ml",
+        extra_prompts=dict(cfg.prompts.extra_prompts) or None,
+    )
+
+
+@pytest.mark.parametrize("cfg_path, cells", [
+    (CFG_FULL, FULL_CELLS),
+    (CFG_SMOKE, SMOKE_CELLS),
+])
+def test_pin_resolves_into_both_stages(cfg_path, cells):
+    cfg = _load(cfg_path)
+    pm = _pm_from_config(cfg)
+    extras = pm.extra_prompts()          # resolved file texts, keyed by stage
+    # Both stage keys resolved (not dropped as unknown, not left as bare paths)
+    assert set(extras) >= {"experiment_design", "code_generation"}
+    for stage in ("experiment_design", "code_generation"):
+        body = extras[stage]
+        # A raw unresolved path is <100 chars; the matrix docs are several KB —
+        # so >500 distinguishes "file was read" from "bare path string injected".
+        assert len(body) > 500, f"{stage} extra looks unresolved (got {body!r})"
+        for cell in cells:
+            assert cell in body, f"{stage} pin missing cell {cell}"
+        assert "scaffold" in body and "RC_DATASET_DIR" in body
+
+
+def test_for_stage_appends_pin_under_additional_guidance():
+    """The resolved pin is actually appended to the rendered code_generation prompt."""
+    cfg = _load(CFG_SMOKE)
+    pm = _pm_from_config(cfg)
+    rendered = pm.for_stage(
+        "code_generation",
+        topic="t", metric="val_r2", pkg_hint="", exp_plan="",
+    )
+    assert "## Additional Stage Guidance" in rendered.user
+    assert "load_fc_graphs" in rendered.user
+    assert "A1" in rendered.user and "B1" in rendered.user

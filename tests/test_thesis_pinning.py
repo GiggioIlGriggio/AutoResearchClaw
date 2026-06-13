@@ -104,3 +104,20 @@ def test_smoke_matrix_doc_is_the_four_cell_subset():
     # cells NOT in the smoke subset must not be pinned as run cells
     for cell in ("A2", "A4", "A5", "B2", "B3", "B4", "C2"):
         assert f"| {cell} " not in text, f"{cell} should not be a smoke run cell"
+
+
+def test_smoke_config_runs_locally_and_pins_smoke_matrix():
+    cfg = _load(CFG_SMOKE)
+    s = cfg.experiment.scaffold
+    assert s.enabled is True
+    assert "rc_brain_data" in s.dataset_dir
+    assert s.require is True
+    assert cfg.experiment.benchmark_agent.enabled is False
+    assert cfg.experiment.mode == "sandbox"
+    extras = dict(cfg.prompts.extra_prompts)
+    for stage in ("experiment_design", "code_generation"):
+        assert stage in extras
+        assert extras[stage].endswith("pnc-age-vwm-matrix-smoke.md")
+    # the smoke must EXECUTE locally: execution stage is NOT HITL-gated
+    assert not any(int(s) >= 11 for s in cfg.security.hitl_required_stages), \
+        "smoke must run end-to-end locally (do not gate execution)"

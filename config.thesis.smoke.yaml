@@ -1,0 +1,77 @@
+project:
+  name: "pnc-age-vwm-smoke"
+  mode: "full-auto"
+
+research:
+  topic: >-
+    SMOKE: within-PNC age->VWM transfer vs. age concatenation on a 400-node cortical
+    Schaefer structural-connectivity GCN. Local validation of the pinned pipeline on a
+    4-cell subset (A1, A3, B1, C1) with a reduced protocol — code-shape check, not real
+    numbers.
+  domains:
+    - "machine-learning"
+    - "graph-neural-networks"
+    - "transfer-learning"
+  daily_paper_count: 3
+  quality_threshold: 3.0
+
+runtime:
+  timezone: "America/New_York"
+  max_parallel_tasks: 2
+  approval_timeout_hours: 12
+
+notifications:
+  channel: "console"
+  target: ""
+  on_stage_start: true
+  on_stage_fail: true
+  on_gate_required: true
+
+knowledge_base:
+  backend: "markdown"
+  root: "docs/kb"
+
+llm:
+  provider: "acp"
+  base_url: ""
+  wire_api: "chat_completions"
+  api_key_env: ""
+  api_key: ""
+  primary_model: "gpt-4o"
+  fallback_models:
+    - "gpt-4.1"
+    - "gpt-4o-mini"
+
+security:
+  # No execution gate: the smoke MUST run end-to-end locally. (9 = design review only.)
+  hitl_required_stages: [9]
+  allow_publish_without_approval: true
+  redact_sensitive_logs: true
+
+experiment:
+  mode: "sandbox"
+  # Small budget is fine: only 4 conditions (<= the cap of 8), reduced protocol.
+  time_budget_sec: 900
+  max_iterations: 2
+  metric_key: "val_r2"
+  metric_direction: "maximize"
+  scaffold:
+    enabled: true
+    dir: "/home/compa/Documents/working_dir/ResearchClaude/AutoResearchClaw/experiment_scaffold"
+    manifest: "SCAFFOLD.md"
+    dataset_dir: "~/rc_brain_data"
+    require: true
+  sandbox:
+    python_path: ".venv/bin/python3"
+    gpu_required: true
+    max_memory_mb: 8192
+  benchmark_agent:
+    enabled: false
+  opencode:
+    enabled: false
+
+prompts:
+  custom_file: ""
+  extra_prompts:
+    experiment_design: ./docs/thesis/pnc-age-vwm-matrix-smoke.md
+    code_generation: ./docs/thesis/pnc-age-vwm-matrix-smoke.md

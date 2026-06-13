@@ -276,3 +276,37 @@ def test_load_fc_graphs_graph_feature_key_age(scaffold_pkg, ds_dir):
         graph_feature_key="age")
     assert tuple(graphs[1].u.shape) == (1, 1)
     assert float(graphs[1].u) == 9.0
+
+
+def _toy_batch(scaffold_pkg, n=10, r=6, with_u=0):
+    from torch_geometric.loader import DataLoader
+    fc_graph = scaffold_pkg["fc_graph"]
+    fcs = np.stack([_signed_fc(r, seed=i) for i in range(n)])
+    y = np.arange(float(n))
+    gattr = None if not with_u else np.zeros((n, with_u), dtype=np.float32) + 0.5
+    dl = fc_graph.fc_arrays_to_data_list(fcs, y, task="regression",
+                                         node_features="identity",
+                                         edge_weight_norm="abs", graph_attr=gattr)
+    return next(iter(DataLoader(dl, batch_size=n))), r
+
+def test_graph_regressor_plain(scaffold_pkg):
+    import importlib
+    heads = importlib.import_module("scaffold.heads")
+    models = scaffold_pkg["models"]
+    batch, r = _toy_batch(scaffold_pkg, with_u=0)
+    backbone = models.build_gcn(in_channels=r, hidden_channels=16, out_channels=8)
+    model = heads.GraphRegressor(backbone, pooled_dim=8, global_dim=0)
+    out = model(batch.x, batch.edge_index, batch.edge_weight, batch.batch)
+    assert tuple(out.shape) == (10,)
+    assert torch.isfinite(out).all()
+
+def test_graph_regressor_with_side_channel(scaffold_pkg):
+    import importlib
+    heads = importlib.import_module("scaffold.heads")
+    models = scaffold_pkg["models"]
+    batch, r = _toy_batch(scaffold_pkg, with_u=1)        # age @head dim 1
+    backbone = models.build_gcn(in_channels=r, hidden_channels=16, out_channels=8)
+    model = heads.GraphRegressor(backbone, pooled_dim=8, global_dim=1)
+    out = model(batch.x, batch.edge_index, batch.edge_weight, batch.batch, u=batch.u)
+    assert tuple(out.shape) == (10,)
+    assert torch.isfinite(out).all()

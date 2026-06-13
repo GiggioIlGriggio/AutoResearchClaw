@@ -247,3 +247,32 @@ def test_fc_arrays_to_data_list_threads_graph_attr(scaffold_pkg):
     dl = fc_graph.fc_arrays_to_data_list(fc, y, task="regression", graph_attr=gattr)
     assert tuple(dl[2].u.shape) == (1, 1)
     assert float(dl[2].u) == 3.0
+
+
+def test_load_fc_graphs_glm_diagonal_node_features(scaffold_pkg, ds_dir):
+    _, write = ds_dir
+    data_loader = scaffold_pkg["data_loader"]
+    n = 6
+    sc = np.stack([_signed_fc(n, seed=i) for i in range(3)]).astype(np.float32)
+    glm = np.stack([np.arange(1.0, n + 1.0, dtype=np.float32) for _ in range(3)])  # (3, n)
+    write("pnc_sc400_vwm_reg", sc=sc, glm_2back_vs_0back=glm,
+          y=np.arange(3.0), age=np.array([10.0, 12.0, 14.0]),
+          task=np.array("regression"))
+    graphs = data_loader.load_fc_graphs(
+        "pnc_sc400_vwm_reg", matrix_key="sc", edge_weight_norm="abs_max",
+        node_feature_key="glm_2back_vs_0back", glm_diagonal=True)
+    assert tuple(graphs[0].x.shape) == (n, n)        # diagonal carrier (R, R)
+    z = (glm[0] - glm[0].mean()) / (glm[0].std() + 1e-8)
+    assert np.allclose(np.diag(graphs[0].x.numpy()), z, atol=1e-5)
+
+def test_load_fc_graphs_graph_feature_key_age(scaffold_pkg, ds_dir):
+    _, write = ds_dir
+    data_loader = scaffold_pkg["data_loader"]
+    sc = np.stack([_signed_fc(5, seed=i) for i in range(3)]).astype(np.float32)
+    write("pnc_sc400_vwm_reg2", sc=sc, y=np.arange(3.0),
+          age=np.array([8.0, 9.0, 10.0]), task=np.array("regression"))
+    graphs = data_loader.load_fc_graphs(
+        "pnc_sc400_vwm_reg2", matrix_key="sc", edge_weight_norm="abs_max",
+        graph_feature_key="age")
+    assert tuple(graphs[1].u.shape) == (1, 1)
+    assert float(graphs[1].u) == 9.0

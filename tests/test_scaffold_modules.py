@@ -340,3 +340,23 @@ def test_set_trainable_toggles_grad(scaffold_pkg):
     assert all(not p.requires_grad for p in m.parameters())
     transfer.set_trainable(m, True)
     assert all(p.requires_grad for p in m.parameters())
+
+
+def test_age_vwm_baseline_recovers_linear_signal(scaffold_pkg):
+    import importlib
+    baselines = importlib.import_module("scaffold.baselines")
+    rng = np.random.default_rng(0)
+    age = rng.uniform(8, 21, size=300)
+    vwm = 0.1 * age + rng.normal(0, 0.05, size=300)     # strong linear age->vwm
+    (slope, intercept), r2 = baselines.age_vwm_baseline(age, vwm, cv=5)
+    assert 0.5 < r2 <= 1.0
+    assert abs(slope - 0.1) < 0.03
+
+def test_age_vwm_baseline_floor_on_noise(scaffold_pkg):
+    import importlib
+    baselines = importlib.import_module("scaffold.baselines")
+    rng = np.random.default_rng(1)
+    age = rng.uniform(8, 21, size=200)
+    vwm = rng.normal(0, 1, size=200)                    # no relationship
+    _, r2 = baselines.age_vwm_baseline(age, vwm, cv=5)
+    assert r2 < 0.1

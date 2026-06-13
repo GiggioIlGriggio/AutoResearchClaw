@@ -310,3 +310,33 @@ def test_graph_regressor_with_side_channel(scaffold_pkg):
     out = model(batch.x, batch.edge_index, batch.edge_weight, batch.batch, u=batch.u)
     assert tuple(out.shape) == (10,)
     assert torch.isfinite(out).all()
+
+
+def test_backbone_checkpoint_roundtrip_and_freeze(scaffold_pkg, tmp_path):
+    import importlib
+    transfer = importlib.import_module("scaffold.transfer")
+    models = scaffold_pkg["models"]
+    src = models.build_gcn(in_channels=6, hidden_channels=16, out_channels=8)
+    dst = models.build_gcn(in_channels=6, hidden_channels=16, out_channels=8)
+    # two fresh backbones differ somewhere before transfer (non-trivial roundtrip)
+    assert any(not torch.allclose(a, b)
+               for a, b in zip(src.parameters(), dst.parameters()))
+    ckpt = tmp_path / "age_backbone.pt"
+    transfer.save_backbone(src, ckpt)
+    transfer.load_backbone(dst, ckpt, strict=True)
+    for a, b in zip(src.parameters(), dst.parameters()):
+        assert torch.allclose(a, b)
+    # freeze: no grads on the backbone
+    transfer.freeze(dst)
+    assert all(not p.requires_grad for p in dst.parameters())
+
+
+def test_set_trainable_toggles_grad(scaffold_pkg):
+    import importlib
+    transfer = importlib.import_module("scaffold.transfer")
+    models = scaffold_pkg["models"]
+    m = models.build_gcn(in_channels=6, hidden_channels=8, out_channels=4)
+    transfer.set_trainable(m, False)
+    assert all(not p.requires_grad for p in m.parameters())
+    transfer.set_trainable(m, True)
+    assert all(p.requires_grad for p in m.parameters())

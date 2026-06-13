@@ -87,3 +87,20 @@ def test_full_config_injects_matrix_into_both_stages():
     # and the execution stage is HITL-gated (cluster handoff in M3)
     assert any(int(s) >= 11 for s in cfg.security.hitl_required_stages), \
         "full config must gate execution so ARC pauses for the cluster handoff"
+
+
+def test_smoke_matrix_doc_is_the_four_cell_subset():
+    assert MATRIX_SMOKE.is_file(), f"missing {MATRIX_SMOKE}"
+    text = MATRIX_SMOKE.read_text(encoding="utf-8")
+    for cell in SMOKE_CELLS:
+        assert cell in text, f"smoke matrix missing cell {cell}"
+    # The transfer/concat cells the smoke is built around must be wired here.
+    for sym in ("load_fc_graphs", "GraphRegressor", "save_backbone", "load_backbone",
+                "graph_feature_key", "pnc_sc400_age_reg", "pnc_sc400_vwm_reg"):
+        assert sym in text, f"smoke matrix missing {sym}"
+    # reduced protocol must be explicit (so the smoke is tiny on the A4000)
+    low = text.lower()
+    assert "limit" in low and "epoch" in low
+    # cells NOT in the smoke subset must not be pinned as run cells
+    for cell in ("A2", "A4", "A5", "B2", "B3", "B4", "C2"):
+        assert f"| {cell} " not in text, f"{cell} should not be a smoke run cell"

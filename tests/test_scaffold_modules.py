@@ -230,3 +230,20 @@ def test_glm_diagonal_features_no_normalize(scaffold_pkg):
     D = fc_graph.glm_diagonal_features(glm, normalize=False)
     assert np.allclose(np.diag(D), glm)
     assert D.shape == (3, 3)
+
+def test_fc_to_data_attaches_graph_attr_u(scaffold_pkg):
+    fc_graph = scaffold_pkg["fc_graph"]
+    fc = _signed_fc(8)
+    d = fc_graph.fc_to_data(fc, 0.0, task="regression",
+                            graph_attr=np.array([2.5, -1.0]))   # U=2
+    assert tuple(d.u.shape) == (1, 2)
+    assert np.allclose(d.u.view(-1).numpy(), [2.5, -1.0])
+
+def test_fc_arrays_to_data_list_threads_graph_attr(scaffold_pkg):
+    fc_graph = scaffold_pkg["fc_graph"]
+    fc = np.stack([_signed_fc(6, seed=i) for i in range(3)])
+    y = np.arange(3.0)
+    gattr = np.array([[1.0], [2.0], [3.0]])    # (N, U=1)  e.g. age scalar
+    dl = fc_graph.fc_arrays_to_data_list(fc, y, task="regression", graph_attr=gattr)
+    assert tuple(dl[2].u.shape) == (1, 1)
+    assert float(dl[2].u) == 3.0

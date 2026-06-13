@@ -105,7 +105,7 @@ def topk_edge_index(fc: np.ndarray, k: int = 10):
 def fc_to_data(fc, y, k: int = 10, node_features: str = "degree",
                task: str = "classification", edge_construction: str = "topk",
                density: float = 0.10, edge_weight_norm: str | None = None,
-               node_attr=None) -> Data:
+               node_attr=None, graph_attr=None) -> Data:
     """Convert one FC matrix + label into a graph-level PyG Data sample.
 
     ``task`` controls the label dtype: ``classification`` stores ``y`` as a
@@ -178,12 +178,16 @@ def fc_to_data(fc, y, k: int = 10, node_features: str = "degree",
         y_tensor = torch.tensor([float(y)], dtype=torch.float)
     else:
         raise ValueError(f"unknown task: {task}")
+    u = None
+    if graph_attr is not None:
+        u = torch.as_tensor(np.asarray(graph_attr), dtype=torch.float).reshape(1, -1)
     return Data(
         x=x,
         edge_index=edge_index,
         edge_attr=edge_weight.view(-1, 1),
         edge_weight=edge_weight,
         y=y_tensor,
+        u=u,
     )
 
 
@@ -205,7 +209,7 @@ def fc_arrays_to_data_list(fc, y, k: int = 10, node_features: str = "degree",
                            edge_construction: str = "topk",
                            density: float = 0.10,
                            edge_weight_norm: str | None = None,
-                           node_attr=None):
+                           node_attr=None, graph_attr=None):
     """(N, R, R) FC stack + (N,) labels -> list[Data].
 
     ``node_attr`` optionally supplies external per-node features as an
@@ -217,6 +221,7 @@ def fc_arrays_to_data_list(fc, y, k: int = 10, node_features: str = "degree",
         fc_to_data(fc[i], y[i], k=k, node_features=node_features, task=task,
                    edge_construction=edge_construction, density=density,
                    edge_weight_norm=edge_weight_norm,
-                   node_attr=None if node_attr is None else node_attr[i])
+                   node_attr=None if node_attr is None else node_attr[i],
+                   graph_attr=None if graph_attr is None else graph_attr[i])
         for i in range(len(y))
     ]

@@ -138,3 +138,24 @@ def test_train_cell_smoke_all_modes(tmp_path):
         res = T.run(cell, 0, 0, tmp_path, source_dir=tmp_path, **(smoke if cell != "A5" else {}))
         assert np.isfinite(res["test_r2"]), f"{cell} produced non-finite R²"
         assert (tmp_path / "results" / f"{cell}_rep0_outer0.json").is_file()
+
+
+def test_reducer_aggregates_per_cell(tmp_path):
+    import json
+    from cluster import reduce_results as R
+
+    rdir = tmp_path / "results"; rdir.mkdir()
+    # two folds for A3, one for B1, plus a source A1 (held-out age-R², a DIFFERENT task)
+    for k, v, kind in [("A3", 0.20, "target"), ("A3", 0.18, "target"),
+                       ("B1", 0.02, "target"), ("A1", 0.40, "source_age")]:
+        i = sum(1 for _ in rdir.glob(f"{k}_*"))
+        (rdir / f"{k}_rep0_outer{i}.json").write_text(json.dumps(
+            dict(cell=k, rep=0, outer=i, test_r2=v, kind=kind)))
+    table = R.aggregate(rdir)
+    a3 = next(r for r in table if r["cell"] == "A3")
+    assert abs(a3["mean_r2"] - 0.19) < 1e-9 and a3["n_folds"] == 2
+    assert a3["task"] == "vwm"
+    a1 = next(r for r in table if r["cell"] == "A1")
+    assert a1["task"] == "age"   # source age-R² is labelled, never mixed into the VWM metric
+    md, csv = R.write_table(table, tmp_path / "m3_results")
+    assert md.is_file() and csv.is_file()

@@ -121,3 +121,20 @@ def test_train_eval_does_not_mutate_inputs():
     assert [float(g.y) for g in tr] == orig_tr, "train_eval mutated train inputs"
     assert [float(g.y) for g in va] == orig_va, "train_eval mutated val inputs"
     assert [float(g.y) for g in g_te] == orig_te, "train_eval mutated test inputs"
+
+
+@needs_data
+def test_train_cell_smoke_all_modes(tmp_path):
+    import torch
+    from cluster import pretrain_source as P
+    from cluster import train_cell as T
+
+    # source ckpts A1/A4 for (rep0,outer0) so the transfer cells can load them
+    for s in ("A1", "A4"):
+        P.run(s, 0, 0, tmp_path, limit=24, max_epochs=2)
+
+    smoke = dict(limit=24, n_trials=2, max_epochs=2)
+    for cell in ("A2", "A3", "B1", "B2", "B3", "B4", "C1", "C2", "A5"):
+        res = T.run(cell, 0, 0, tmp_path, source_dir=tmp_path, **(smoke if cell != "A5" else {}))
+        assert np.isfinite(res["test_r2"]), f"{cell} produced non-finite R²"
+        assert (tmp_path / "results" / f"{cell}_rep0_outer0.json").is_file()

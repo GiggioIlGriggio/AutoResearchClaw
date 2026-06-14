@@ -53,3 +53,34 @@ def test_inner_split_holds_out_within_train():
     itr, iva = F.inner_split(fold.train_vwm, seed=1)
     assert set(itr).isdisjoint(iva)
     assert set(itr) | set(iva) == set(fold.train_vwm)
+
+
+def test_cells_map_is_consistent():
+    from cluster._common import CELLS, SOURCE_CELLS, HPO_CELLS, carrier_kwargs
+
+    assert set(CELLS) == {"A1","A2","A3","A4","A5","B1","B2","B3","B4","C1","C2"}
+    assert set(SOURCE_CELLS) == {"A1", "A4"}
+    assert set(HPO_CELLS) == {"A2","A3","B1","B2","B3","B4","C1","C2"}
+    # every transfer cell points at a real source whose carrier matches (strict=True load)
+    for c, spec in CELLS.items():
+        if spec.get("mode") in {"finetune", "frozen"}:
+            assert CELLS[spec["source"]]["carrier"] == spec["carrier"], f"{c} carrier mismatch"
+    # carrier_kwargs never leaks a 'carrier' kwarg into the loader
+    for carrier in ("identity", "glm_diagonal"):
+        assert "carrier" not in carrier_kwargs(carrier)
+    assert CELLS["C1"]["global_dim"] == 1 and CELLS["C2"]["global_dim"] == 400
+
+
+@needs_data
+def test_load_fold_graphs_shapes():
+    from cluster import data as D
+    from cluster import folds as F
+
+    fold = F.outer_split(0, 0)
+    g_tr, g_te = D.load_cell_graphs("A3", fold, limit=24)  # glm_diagonal carrier
+    assert g_tr[0].x.shape[1] == 400 and len(g_te) > 0
+    assert len(g_tr) == 24 and len(g_te) == 24  # limit slices both train and test
+    g_tr, g_te = D.load_cell_graphs("C1", fold, limit=24)  # + age @head -> data.u U=1
+    assert g_tr[0].u.shape[-1] == 1
+    g_tr, g_te = D.load_cell_graphs("C2", fold, limit=24)  # GLM @head -> data.u U=400
+    assert g_tr[0].u.shape[-1] == 400

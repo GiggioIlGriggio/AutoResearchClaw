@@ -84,3 +84,40 @@ def test_load_fold_graphs_shapes():
     assert g_tr[0].u.shape[-1] == 1
     g_tr, g_te = D.load_cell_graphs("C2", fold, limit=24)  # GLM @head -> data.u U=400
     assert g_tr[0].u.shape[-1] == 400
+
+
+@needs_data
+def test_pretrain_source_smoke(tmp_path):
+    from cluster import pretrain_source as P
+    res = P.run("A1", rep=0, outer=0, out_dir=tmp_path, limit=24, max_epochs=2)
+    assert Path(res["ckpt"]).is_file()
+    assert isinstance(res["test_r2"], float)
+    # the saved backbone reloads strict=True into a fresh identity model (transfer contract)
+    import torch
+    from cluster.trainlib import build_model
+    from cluster._common import DEFAULT_HPS
+    m = build_model(400, 0, DEFAULT_HPS, torch.device("cpu"))
+    from cluster._scaffold import import_scaffold
+    _, _, _, transfer, _ = import_scaffold()
+    transfer.load_backbone(m.backbone, res["ckpt"], strict=True)  # must not raise
+
+
+@needs_data
+def test_train_eval_does_not_mutate_inputs():
+    import torch
+
+    from cluster import data as D
+    from cluster import folds as F
+    from cluster.trainlib import train_eval
+
+    fold = F.outer_split(0, 0)
+    g_tr, g_te = D.load_cell_graphs("A3", fold, limit=16)
+    tr, va = g_tr[:10], g_tr[10:]
+    orig_tr = [float(g.y) for g in tr]
+    orig_va = [float(g.y) for g in va]
+    orig_te = [float(g.y) for g in g_te]
+    train_eval(tr, va, global_dim=0, hps={}, device=torch.device("cpu"),
+               test_graphs=g_te, max_epochs=2)
+    assert [float(g.y) for g in tr] == orig_tr, "train_eval mutated train inputs"
+    assert [float(g.y) for g in va] == orig_va, "train_eval mutated val inputs"
+    assert [float(g.y) for g in g_te] == orig_te, "train_eval mutated test inputs"

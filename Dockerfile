@@ -7,6 +7,9 @@ FROM pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime
 WORKDIR /app
 
 COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
+# The base image's python3.12 is Debian "externally-managed" (PEP 668); pip installs
+# into /usr/local/lib/python3.12/dist-packages — the same tree as the bundled
+# torch 2.11.0+cu128 — so --break-system-packages adds pyg/optuna alongside it.
+RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
 CMD ["python"]

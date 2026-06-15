@@ -58,12 +58,91 @@ inputs are not mutated) and the subject-aligned within-subject fold partition.
 
 ---
 
-## 2. Launched cluster jobs
+## 2. Launched cluster jobs — 2026-06-15
 
-_(filled at Task 11 — source array + dependent cell array job ids, node, container tag)_
+**Cluster / node:** `al5165@155.105.223.17`, **gpunode02** (`rad2` / qos `16cpu` / account `rad`),
+GPUs RTX 3090 + RTX 6000 (no type pin — both share the node driver). CPU-limited to ~4–7
+concurrent array tasks (16 cores / 4 cpus-per-task).
+
+**Container:** `pnc-age-vwm.sif` from `pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime`
++ `torch_geometric==2.8.0`, `optuna==4.9.0`, numpy/scipy/pandas/sklearn pinned to the local
+stack (pip under PEP 668 via `--break-system-packages`). Node driver **r550.54.15 (CUDA 12.4)**
+runs the **cu128** runtime via CUDA 12.x minor-version compatibility.
+
+**Deploy:** branch `thesis/pnc-age-vwm` @ `01dd677`, deployed by `cluster-submit` (SSH clone of
+the public fork `GiggioIlGriggio/AutoResearchClaw`; `origin`→fork, `upstream`→`aiming-lab`,
+because the laptop account lacks write to the aiming-lab repo).
+
+**GPU hard gate (job 361418):** real cuBLAS matmul **and** a `GCNConv` forward both execute and
+return finite results on the RTX 3090 — not merely `torch.cuda.is_available()`. PASS.
+
+**Timing/anchor probe (job 361489\_50):** ONE full-protocol A3 task via the real `cell.sh`
+(array idx 50 = A3/rep0/outer0) → **3 m 17 s**, single-fold R² **0.2105**. Confirmed the per-task
+cost and the load-bearing baseline before the 500-task spend.
+
+**Matrix DAG (full nested CV, protocol 10 reps × 5 outer × 20 inner Optuna; fixed GCN ARCH
+hidden=64/out=32/3 layers/batch_norm; metric outer-test R², maximize; realized common N=743):**
+
+| array | job id | `--array` | tasks | result |
+|---|---|---|---|---|
+| source (A1, A4 → age backbones) | **361491** | `0-99` | 100 | **100/100 COMPLETED, 0 failures** |
+| cell (8 HPO cells → VWM) | **361498** | `0-399`, `--dependency=afterok:361491` | 400 | **400/400 COMPLETED, 0 failures** |
+| A5 (trivial age→VWM OLS) | — (local) | — | 50 | deterministic CPU OLS on the same seeded folds (environment-independent) |
+
+Wall-clock ≈ 5 h on gpunode02 (source ~25 min → cell ~4.5 h). 500 result JSONs fetched to
+`runs/matrix-fetched/` + 50 local A5 = **550** per-fold results reduced.
 
 ---
 
 ## 3. Fetched per-cell results vs registered predictions
 
-_(filled at Task 12 — per-cell mean±std `val_r2` table + falsifier checks)_
+Per-cell mean ± std outer-test R² over the 50 folds (10 reps × 5 outer), from
+`cluster.reduce_results` (full table also at `docs/thesis/m3_results.{md,csv}`). `task` = the
+cell's target: **age** (A1/A4 source backbones, held-out age-R²) vs **vwm** (all baseline/
+transfer cells). Compare R² only within the same task.
+
+| cell | task | mean R² | std | registered prediction | verdict |
+|---|---|---|---|---|---|
+| A1 (identity → age, source) | age | **0.537** | 0.049 | — | identity-SC decodes age well |
+| A4 (glm_diagonal → age, source) | age | **0.043** | 0.105 | — | glm_diagonal-SC barely decodes age |
+| A2 (identity, scratch) | vwm | 0.050 | 0.072 | ≈ −0.03 (identity floor) | ~floor (small +, ≪ A3) |
+| A3 (glm_diagonal, scratch) | vwm | **0.214** | 0.084 | ≈ 0.18–0.21 (baseline to beat) | ✅ anchor on-target |
+| A5 (trivial age→VWM OLS) | vwm | 0.056 | 0.046 | small positive | ✅ |
+| B1 (A1 → VWM, finetune) | vwm | 0.077 | 0.047 | ≈ 0–0.05 (≪ A3) | ✅ ≪ A3 |
+| B2 (A1 → VWM, frozen) | vwm | 0.031 | 0.029 | ≤ B1 | ✅ |
+| B3 (A4 → VWM, finetune) | vwm | 0.191 | 0.067 | ≈ A3 | ✅ ≈ A3 |
+| B4 (A4 → VWM, frozen) | vwm | 0.136 | 0.053 | ≤ B3 | ✅ |
+| C1 (glm_diagonal + age @head, scratch) | vwm | **0.244** | 0.065 | A3 < C1 ≤ A3⊕A5 | ✅ |
+| C2 (A1 → VWM, finetune + GLM @head) | vwm | 0.223 | 0.065 | ≈ A3 | ✅ |
+
+### Pre-registered falsifiers — none triggered
+
+```
+[falsifier] signal-location (B1/B2 ≈ A3 falsifies):      A3=0.214 B1=0.077 B2=0.031   → NOT falsified
+[falsifier] trivial-trend (C1 > A3⊕A5 super-add falsifies): A3=0.214 A5=0.056 C1=0.244 → NOT falsified
+[falsifier] saturation (B3 ≫ A3 falsifies):              A3=0.214 B3=0.191            → NOT falsified
+```
+
+### Reading (measured; what the numbers say, not over-claimed)
+
+Every registered prediction holds and no falsifier fires — the matrix is **consistent with the
+thesis**: within-subject age→VWM **transfer does not beat the from-scratch `glm_diagonal`
+baseline** (A3 = 0.214).
+
+- **The signal is in the carrier, not the transferred weights.** `glm_diagonal` cells cluster at
+  ≈ 0.19–0.24 whether trained from scratch (A3 = 0.214) or fine-tuned from an age backbone
+  (B3 = 0.191 ≈ A3; B4 frozen = 0.136 ≤ B3). Identity cells sit near the floor whether scratch
+  (A2 = 0.050) or transferred (B1 = 0.077, B2 = 0.031 ≪ A3).
+- **Age-decoding ability ≠ VWM-transfer value.** A1 decodes age strongly (0.537), yet its backbone
+  transfers worst to VWM (B1/B2 ≪ A3). A4 barely decodes age (0.043), yet B3 ≈ A3 — so B3's score
+  is the carrier's, not the pretraining's. This is the central negative result: a backbone being
+  good at age says nothing about its value for VWM.
+- **Marginal head gains, no super-additivity.** C1 (age as a graph-feature at the head) = 0.244
+  edges just above A3, bounded by the trivial age→VWM signal (A5 = 0.056) — additive, not
+  synergistic. C2 (GLM @head over an identity backbone) recovers ≈ A3 (0.223).
+- **Minor deviation, noted:** A2 (identity floor) came in slightly positive (0.050) vs the
+  registered ≈ −0.03 — the identity-SC carrier carries a weak-but-nonzero VWM signal. It remains
+  ≪ A3, so the baseline ordering is unaffected.
+
+All 50/50 folds present for every cell (no `[WARNING] incomplete cells`); 500/500 GPU tasks
+COMPLETED with zero failures.

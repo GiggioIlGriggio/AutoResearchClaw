@@ -21,9 +21,11 @@ OUT_IN=/workspace/runs/matrix                         # -> <project_root>/runs/m
 
 echo "[source] node=$(hostname) sha=$(git rev-parse --short HEAD) task=${SLURM_ARRAY_TASK_ID}"
 
-# index -> (cell, rep, outer) via the container python (pure cluster._common)
+# index -> (cell, rep, outer) via the container python (pure cluster._common).
+# tail -n1 guards against any singularity stdout banner; pipefail still propagates
+# a real failure of the exec so a bad mapping never silently runs the wrong unit.
 UNIT=$(singularity exec --bind "$(pwd):/workspace" --pwd /workspace "$SIF" \
-    python -m slurm._index source "${SLURM_ARRAY_TASK_ID}")
+    python -m slurm._index source "${SLURM_ARRAY_TASK_ID}" | tail -n1)
 read -r CELL REP OUTER <<<"$UNIT"
 echo "[source] cell=$CELL rep=$REP outer=$OUTER"
 

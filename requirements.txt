@@ -1,0 +1,10 @@
+# Container Python deps for the M3 cluster matrix.
+# torch is provided by the base image (pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime);
+# do NOT pin/install torch here or pip may pull a CPU-only wheel over the CUDA build.
+# Pins mirror the validated local .venv stack (investigated 2026-06-14 / 06-15).
+torch_geometric==2.8.0
+optuna==4.9.0
+numpy==2.4.6
+scipy==1.17.1
+pandas==3.0.3
+scikit-learn==1.9.0

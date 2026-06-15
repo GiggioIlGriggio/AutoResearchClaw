@@ -141,3 +141,15 @@ experiments/arc_bench/batch_logs/
 # README is tracked; any local checkout placed here stays local.
 external/agents/ColliderAgent/*
 !external/agents/ColliderAgent/README.md
+
+# Cluster_Helper
+*.sif
+cluster_outputs/
+slurm/logs/*
+!slurm/logs/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/

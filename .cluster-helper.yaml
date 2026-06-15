@@ -1,0 +1,29 @@
+# Cluster_Helper Project Manifest.
+# Single source of truth for where this project lives on the cluster.
+# See Cluster_Helper/CONTEXT.md for terminology.
+
+project_name: pnc-age-vwm
+
+cluster:
+  host: al5165@155.105.223.17
+  project_root: /data/bdip_ssd/al5165/pnc-age-vwm
+  container: pnc-age-vwm.sif
+
+git:
+  remote: origin
+  branch: thesis/pnc-age-vwm
+
+slurm:
+  partition: rad2
+  qos: 16cpu
+  account: rad
+  log_dir: slurm/logs
+  # Defaults for templates — override per-job via sbatch CLI flags.
+  gpus: 1
+  cpus: 4
+  mem: 32G
+  time: "23:59:00"
+
+wandb:
+  project: pnc-age-vwm
+  entity: teampolpetta

@@ -145,6 +145,7 @@ external/agents/ColliderAgent/*
 # Cluster_Helper
 *.sif
 cluster_outputs/
+runs/
 slurm/logs/*
 !slurm/logs/.gitkeep
 

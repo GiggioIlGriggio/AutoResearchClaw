@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -631,6 +632,134 @@ def _execute_literature_collect(
 _MAX_ABSTRACT_LEN = 800  # Truncate long abstracts to reduce token usage
 _MAX_CANDIDATES_CHARS = 30_000  # Cap total candidates text sent to LLM
 
+# Relevance-vs-citation blend for ranking. Relevance must dominate: citation
+# count is only a light tiebreak, otherwise generic mega-cited papers (NumPy,
+# survey articles) crowd out on-topic work — the Stage-5 failure mode.
+_RELEVANCE_WEIGHT = 0.85
+_CITATION_WEIGHT = 0.15
+
+
+def _fuzzy_title_key(title: str) -> str:
+    """Normalize a title for duplicate detection (lowercase, alnum-only)."""
+    return re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).strip()
+
+
+def _richer_record(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """Merge two records for the same paper, keeping the most information.
+
+    Prefers the record that has an abstract (needed for screening), then the
+    higher citation count, and backfills any empty fields from the other.
+    """
+    a_has_abstract = bool(str(a.get("abstract", "")).strip())
+    b_has_abstract = bool(str(b.get("abstract", "")).strip())
+    if a_has_abstract != b_has_abstract:
+        chosen, other = (a, b) if a_has_abstract else (b, a)
+    elif (a.get("citation_count") or 0) >= (b.get("citation_count") or 0):
+        chosen, other = a, b
+    else:
+        chosen, other = b, a
+    merged = dict(chosen)
+    for key, value in other.items():
+        if not merged.get(key) and value:
+            merged[key] = value
+    return merged
+
+
+def _dedupe_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse cross-source duplicates (same paper from arXiv + OpenAlex etc.).
+
+    Keyed on the normalized title so copies that differ only by source,
+    casing, or punctuation merge into one richer record. Insertion order is
+    preserved for the survivors.
+    """
+    best: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for idx, row in enumerate(rows):
+        key = _fuzzy_title_key(row.get("title", ""))
+        if not key:
+            # No usable title — fall back to a unique key so it is never merged.
+            key = str(row.get("doi") or row.get("arxiv_id") or row.get("paper_id") or idx)
+        if key in best:
+            best[key] = _richer_record(best[key], row)
+        else:
+            best[key] = row
+            order.append(key)
+    return [best[key] for key in order]
+
+
+def _rank_candidates_by_relevance(
+    rows: list[dict[str, Any]],
+    topic: str,
+    queries: list[str],
+) -> list[dict[str, Any]]:
+    """Reorder candidates so the most topically-relevant come first.
+
+    Scores each paper by TF-IDF cosine similarity of ``title*3 + abstract``
+    against the research topic plus the search queries, blended with an
+    age-normalized citation signal (relevance dominates). Falls back to
+    ``keyword_overlap`` ordering when scikit-learn is unavailable. Every
+    returned row gains a 0-1 ``relevance_score``.
+    """
+    if not rows:
+        return rows
+    query_doc = " ".join([topic, *queries]).strip() or topic
+
+    try:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.metrics.pairwise import cosine_similarity
+    except ImportError:
+        logger.info("scikit-learn unavailable — ranking by keyword_overlap")
+        ranked = sorted(rows, key=lambda r: r.get("keyword_overlap", 0), reverse=True)
+        for row in ranked:
+            row.setdefault("relevance_score", 0.0)
+        return ranked
+
+    # Weight the title 3x: a title match is a far stronger relevance signal
+    # than an incidental abstract mention.
+    docs = [
+        f"{str(r.get('title') or '')} " * 3 + str(r.get("abstract") or "")
+        for r in rows
+    ]
+    try:
+        vectorizer = TfidfVectorizer(
+            stop_words="english", ngram_range=(1, 2), max_features=40000
+        )
+        matrix = vectorizer.fit_transform([*docs, query_doc])
+        sims = cosine_similarity(matrix[-1], matrix[:-1]).ravel()
+    except ValueError:
+        # Empty vocabulary (e.g. all-stopword corpus) — degrade gracefully.
+        logger.info("TF-IDF produced empty vocabulary — ranking by keyword_overlap")
+        ranked = sorted(rows, key=lambda r: r.get("keyword_overlap", 0), reverse=True)
+        for row in ranked:
+            row.setdefault("relevance_score", 0.0)
+        return ranked
+
+    years = [int(r["year"]) for r in rows if isinstance(r.get("year"), (int, float))]
+    ref_year = max(years) if years else 2026
+
+    def _citation_signal(row: dict[str, Any]) -> float:
+        year = row.get("year")
+        if not isinstance(year, (int, float)):
+            return 0.0
+        age = max(1, ref_year - int(year) + 1)
+        return math.log1p((row.get("citation_count") or 0) / age)
+
+    citation_signals = [_citation_signal(r) for r in rows]
+    citation_max = max(citation_signals) or 1.0
+
+    scored: list[tuple[float, int, dict[str, Any]]] = []
+    for idx, row in enumerate(rows):
+        relevance = float(sims[idx])
+        blended = (
+            _RELEVANCE_WEIGHT * relevance
+            + _CITATION_WEIGHT * (citation_signals[idx] / citation_max)
+        )
+        row["relevance_score"] = round(relevance, 4)
+        scored.append((blended, idx, row))
+    # Sort by blended score; idx as a stable tiebreak keeps it deterministic.
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [row for _, _, row in scored]
+
 
 def _execute_literature_screen(
     stage_dir: Path,
@@ -670,6 +799,25 @@ def _execute_literature_screen(
     # If pre-filter dropped everything, fall back to original (safety valve)
     if not filtered_rows:
         filtered_rows = _parse_jsonl_rows(candidates_text)
+
+    # Merge cross-source duplicates (same paper from arXiv + OpenAlex etc.)
+    # before ranking, so duplicates don't waste slots in the token budget.
+    pre_dedupe_count = len(filtered_rows)
+    filtered_rows = _dedupe_candidates(filtered_rows)
+
+    # Rank by relevance to the topic + search queries. Without this the
+    # truncation below keeps whatever was collected first — often
+    # citation-sorted noise — and starves the screener of relevant work.
+    search_meta = _safe_json_loads(
+        _read_prior_artifact(run_dir, "search_meta.json") or "{}", {}
+    )
+    search_queries = (
+        search_meta.get("queries_used", []) if isinstance(search_meta, dict) else []
+    )
+    filtered_rows = _rank_candidates_by_relevance(
+        filtered_rows, config.research.topic, search_queries
+    )
+
     # Truncate abstracts and strip authors to reduce token usage
     for row in filtered_rows:
         abstract = row.get("abstract", "")
@@ -678,22 +826,35 @@ def _execute_literature_screen(
         # Strip authors list — not needed for screening and inflates tokens
         row.pop("authors", None)
 
-    # Rebuild candidates_text from filtered rows
-    candidates_text = "\n".join(
-        json.dumps(r, ensure_ascii=False) for r in filtered_rows
-    )
-    # Cap total candidates text size to avoid blowing token budget
-    if len(candidates_text) > _MAX_CANDIDATES_CHARS:
-        # Truncate at newline boundary to avoid cutting mid-JSON-line
-        candidates_text = candidates_text[:_MAX_CANDIDATES_CHARS].rsplit("\n", 1)[0]
+    # Rebuild candidates_text from the relevance-ranked rows, capping at the
+    # token budget. Because rows are sorted best-first, truncation now drops
+    # the LEAST relevant tail — and we log exactly how many were cut rather
+    # than silently dropping them.
+    candidate_lines = [json.dumps(r, ensure_ascii=False) for r in filtered_rows]
+    screened_count = len(candidate_lines)
+    running_chars = 0
+    kept_lines: list[str] = []
+    for line in candidate_lines:
+        if kept_lines and running_chars + len(line) + 1 > _MAX_CANDIDATES_CHARS:
+            break
+        kept_lines.append(line)
+        running_chars += len(line) + 1
+    candidates_text = "\n".join(kept_lines)
+    if len(kept_lines) < screened_count:
+        screened_count = len(kept_lines)
         logger.info(
-            "Candidates text truncated to %d chars for screening",
-            len(candidates_text),
+            "Candidates truncated to top %d of %d by relevance (budget %d chars); "
+            "%d lower-ranked candidates not sent to the screener",
+            screened_count,
+            len(filtered_rows),
+            _MAX_CANDIDATES_CHARS,
+            len(filtered_rows) - screened_count,
         )
     logger.info(
-        "Domain pre-filter: kept %d, dropped %d (keywords: %s)",
+        "Domain pre-filter: kept %d, dropped %d, deduped %d (keywords: %s)",
         len(filtered_rows),
         dropped_count,
+        pre_dedupe_count - len(filtered_rows),
         topic_keywords[:8],
     )
 
@@ -743,7 +904,8 @@ def _execute_literature_screen(
             json.dumps(
                 {
                     "outcome": "model_rejected_all",
-                    "candidates_screened": len(filtered_rows),
+                    "candidates_screened": screened_count,
+                    "candidates_available": len(filtered_rows),
                     "shortlist_size": 0,
                     "note": (
                         "Strict screen returned empty shortlist. Pipeline paused; "
